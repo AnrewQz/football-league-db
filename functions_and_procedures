@@ -1,0 +1,128 @@
+set search_path to fb;
+
+-- Добавление матча
+create or replace procedure add_match(
+	home_team_id int,
+	guest_team_id int,
+	stadium_id int,
+	home_team_scored int,
+	guest_team_scored int
+) as
+$$
+	insert into matches (home_team_id, guest_team_id, stadium_id, home_team_scored, guest_team_scored)
+	values (home_team_id, guest_team_id, stadium_id, home_team_scored, guest_team_scored)
+$$ language sql;
+
+call add_match(6, 3, 5, 3, 2); -- ФК Машина против Реала
+
+-- Информация о всех клубах игрока
+create or replace function player_info(
+	id int
+) returns table (name varchar(100), play_from date, play_to date) as 
+$$
+	select
+		t.name,
+		pt.valid_from as play_from,
+		pt.valid_to as play_to
+	from teams t join players_teams pt using(team_id)
+	where player_id = id
+	order by play_from
+$$	language sql
+	stable;
+
+ select * from player_info(1); -- Кузнецов Андрей (типа я)
+
+ -- Трансфер игрока в новую команду
+create or replace procedure transfer_player(
+	p_player_id   int,
+	p_new_team_id int,
+	p_valid_from  date,
+	p_valid_to    date
+)
+language plpgsql
+as $$
+declare
+	v_old_team_id    int;
+	v_old_valid_from date;
+	v_old_valid_to   date;
+begin
+	perform 1 from players where player_id = p_player_id;
+	perform 1 from teams where team_id   = p_new_team_id;
+	if not found then
+    	raise exception 'игрок или команда не найдены';
+ 	end if;
+
+  	if p_valid_from >= p_valid_to or p_valid_to < current_date then
+    	raise exception 'некорректные даты';
+	end if;
+
+  	select team_id, valid_from, valid_to
+    	into v_old_team_id, v_old_valid_from, v_old_valid_to
+    from players_teams
+   	where player_id = p_player_id and valid_to > p_valid_from
+   	order by valid_from desc
+	limit 1;
+
+ 	if found and v_old_valid_to >= p_valid_from then
+    update players_teams
+	set valid_to = p_valid_from - interval '1 day'
+	where player_id  = p_player_id
+		and valid_from = v_old_valid_from
+		and valid_to   = v_old_valid_to;
+	end if;
+
+  	insert into players_teams(player_id, team_id, valid_from, valid_to)
+  	values (p_player_id, p_new_team_id, p_valid_from, p_valid_to);
+end;
+$$;
+
+call transfer_player(9, 2, '2025-04-1', '2029-06-30');
+call transfer_player(1, 2, '2025-03-01', '2028-06-30');
+
+-- Переход тренера в новую команду
+create or replace procedure transfer_trainer(
+	p_trainer_id  int,
+	p_new_team_id int,
+	p_valid_from  date,
+ 	p_valid_to    date
+)
+language plpgsql
+as $$
+declare
+	v_old_team_id    int;
+  	v_old_valid_from date;
+  	v_old_valid_to   date;
+begin
+  	perform 1 from trainers where trainer_id = p_trainer_id;
+  	perform 1 from teams where team_id    = p_new_team_id;
+  	if not found then
+    	raise exception 'тренер или команда не найдены';
+  	end if;
+
+  	if p_valid_from >= p_valid_to or p_valid_to >= current_date then
+    	raise exception 'некорректные даты';
+  	end if;
+
+  	select team_id, valid_from, valid_to
+    	into v_old_team_id, v_old_valid_from, v_old_valid_to
+    from trainer_team
+   	where trainer_id = p_trainer_id and valid_to > p_valid_from
+   	order by valid_from desc
+   	limit 1;
+
+	if found and v_old_valid_to > p_valid_from then
+    update trainer_team
+   		set valid_to = p_valid_from - interval '1 day'
+ 	where trainer_id = p_trainer_id
+   		and valid_from = v_old_valid_from
+		and valid_to   = v_old_valid_to;
+  	end if;
+
+  	update trainers
+ 	set team_id = p_new_team_id
+   	where trainer_id = p_trainer_id;
+
+  	insert into trainer_team(trainer_id, team_id, valid_from, valid_to)
+  	values (p_trainer_id, p_new_team_id, p_valid_from, p_valid_to);
+end;
+$$;
