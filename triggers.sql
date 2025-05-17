@@ -22,15 +22,6 @@ returns trigger as $$
 	        raise exception 'количество голов не может быть отрицательным';
 	    end if;
 
-		-- проверка 4: уникальность матча (одинаковые команды в тот же день)
-	    if exists (
-	        select 1 
-	        from matches m
-			where m.home_team_id = new.home_team_id
-			and m.guest_team_id = new.guest_team_id
-	    ) then
-	        raise exception 'такой матч уже существует';
-	    end if;
 		return new;
 	end;
 $$ language plpgsql;
